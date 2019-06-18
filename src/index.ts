@@ -3,7 +3,8 @@ import { request, stream, Stream, RequestOptions, Response, ContentType, Respons
 import * as crypto from 'crypto'
 import * as Path from 'path';
 import * as Url from 'url';
-
+import * as uniqBy from 'lodash.uniqby';
+ 
 export * from './request'
 
 export interface Properties
@@ -59,10 +60,24 @@ export interface ConnectionReaddirComplexResult
     size : number
     href : string
     name : string
+    fileId: number
+    extraProperties: {
+        [name : string] : string | number | boolean
+    }
 }
 export interface ConnectionReaddirOptions
 {
     properties ?: boolean
+    extraProperties: ConnectionReaddirProperty[]
+}
+
+export interface ConnectionReaddirProperty
+{
+    namespace: string
+    namespaceShort: string
+    element: string
+    default?: any
+    nativeType?: boolean
 }
 
 export class DigestAuthenticator implements Authenticator
@@ -449,12 +464,50 @@ export class Connection
         if(options.properties === undefined || options.properties === null)
             options.properties = false;
 
+        const findProps = new XMLElementBuilder('d:propfind', {
+            'xmlns:d': 'DAV:'
+        });
+
+        const xmlProp = findProps.ele('d:prop');
+        xmlProp.ele('d:resourcetype');
+        xmlProp.ele('d:creationdate');
+        xmlProp.ele('d:getlastmodified');
+        xmlProp.ele('d:getcontentlength');
+
+        let extraProperties : ConnectionReaddirProperty[] = [];
+
+        if (options.properties) {
+            if (options.extraProperties && options.extraProperties.length > 0)
+            {
+                extraProperties = options.extraProperties.filter(extraProperty => {
+                    return extraProperty.namespaceShort && extraProperty.namespaceShort.length > 0 &&
+                    extraProperty.namespace && extraProperty.namespace.length > 0 &&
+                    extraProperty.element && extraProperty.element.length > 0
+                });
+            }
+
+            if (extraProperties.length > 0)
+            {
+                uniqBy(options.extraProperties, extraProperty => extraProperty.namespaceShort)
+                .forEach(extraProperty => {
+                    if (extraProperty.namespaceShort !== 'd') {
+                        findProps.attributes[`xmlns:${extraProperty.namespaceShort}`] = extraProperty.namespace;
+                    }
+                });
+
+                options.extraProperties.forEach(extraProperty => {
+                    xmlProp.ele(`${extraProperty.namespaceShort}:${extraProperty.element}`);
+                });
+            }
+        }
+
         this.request({
             url: path,
             method: 'PROPFIND',
             headers: {
                 depth: '1'
-            }
+            },
+            body: (options.properties ? findProps.toXML() : '')
         }, (e, res, body) => {
             if(e)
                 return callback(e);
@@ -486,7 +539,7 @@ export class Connection
                             const props = el.find('DAV:propstat').find('DAV:prop');
                             const type = props.find('DAV:resourcetype').findIndex('DAV:collection') !== -1 ? 'directory' : 'file';
 
-                            return {
+                            const result = {
                                 name,
 
                                 creationDate: props.findIndex('DAV:creationdate') !== -1 ? new Date(props.find('DAV:creationdate').findText()) : undefined,
@@ -495,8 +548,24 @@ export class Connection
                                 isFile: type === 'file',
                                 isDirectory: type === 'directory',
                                 size: props.findIndex('DAV:getcontentlength') !== -1 ? parseInt(props.find('DAV:getcontentlength').findText()) : 0,
-                                href: hrefWithoutTrailingSlash
+                                href: hrefWithoutTrailingSlash,
                             } as ConnectionReaddirComplexResult;
+
+                            if (extraProperties.length > 0) {
+                                result.extraProperties = {};
+                                extraProperties.forEach(extraProperty => {
+                                    if (props.findIndex(`${extraProperty.namespace}${extraProperty.element}`) !== -1) {
+                                        result.extraProperties[extraProperty.element] = (extraProperty.nativeType ? 
+                                            toNativeType(props.find(`${extraProperty.namespace}${extraProperty.element}`).findText()) : 
+                                            props.find(`${extraProperty.namespace}${extraProperty.element}`).findText()
+                                        );
+                                    } else if (extraProperty.default) {
+                                        result.extraProperties[extraProperty.element] = extraProperty.default;
+                                    }
+                                });
+                            }
+
+                            return result;
                         }
 
                         return name;
@@ -563,7 +632,7 @@ export class Connection
             method: 'PROPFIND',
             headers: {
                 depth: '0'
-            }
+            },
         }, (e, res, body) => {
             if(e)
                 return callback(e);
@@ -601,4 +670,21 @@ export class Connection
             }
         })
     }
+}
+
+function toNativeType(value: string) {
+    let numValue = Number(value);
+    if (!isNaN(numValue))
+    {
+        return numValue;
+    }
+
+    let boolValue = value.toLowerCase();
+    if (boolValue === 'true') {
+        return true;
+    } else if (boolValue === 'false') {
+        return false;
+    }
+
+    return value;
 }
