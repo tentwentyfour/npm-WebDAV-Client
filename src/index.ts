@@ -60,7 +60,6 @@ export interface ConnectionReaddirComplexResult
     size : number
     href : string
     name : string
-    fileId: number
     extraProperties: {
         [name : string] : string | number | boolean
     }
