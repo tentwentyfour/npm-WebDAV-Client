@@ -72,6 +72,7 @@ class Connection
     setProperties(path : string, properties : Properties, callback : (error : Error) => void) : void
     removeProperties(path : string, properties : string[], callback : (error : Error) => void) : void
     getProperties(path : string, callback : (error : Error, properties : Properties) => void) : void
+    getProperties(path : string, options : ConnectionReaddirOptions, callback : (error : Error, properties : Properties) => void) : void
 }
 ```
 
