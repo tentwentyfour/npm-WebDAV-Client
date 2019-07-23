@@ -1,11 +1,26 @@
-import { XMLElement, XML, XMLElementBuilder } from 'xml-js-builder'
-import { request, stream, Stream, RequestOptions, Response, ContentType, ResponseCallback } from './request'
-import * as crypto from 'crypto'
-import * as Path from 'path';
-import * as Url from 'url';
-import * as uniqBy from 'lodash.uniqby';
- 
-export * from './request'
+import * as crypto  from 'crypto';
+import * as uniqBy  from 'lodash.uniqby';
+import * as Path    from 'path';
+import * as Url     from 'url';
+
+import {
+    XML,
+    XMLElement,
+    XMLElementBuilder,
+    XMLElementUtil
+} from 'xml-js-builder';
+
+import {
+    request,
+    stream,
+    Stream,
+    RequestOptions,
+    Response,
+    ContentType,
+    ResponseCallback
+} from './request';
+
+export * from './request';
 
 export interface Properties
 {
@@ -463,42 +478,7 @@ export class Connection
         if(options.properties === undefined || options.properties === null)
             options.properties = false;
 
-        const findProps = new XMLElementBuilder('d:propfind', {
-            'xmlns:d': 'DAV:'
-        });
-
-        const xmlProp = findProps.ele('d:prop');
-        xmlProp.ele('d:resourcetype');
-        xmlProp.ele('d:creationdate');
-        xmlProp.ele('d:getlastmodified');
-        xmlProp.ele('d:getcontentlength');
-
-        let extraProperties : ConnectionReaddirProperty[] = [];
-
-        if (options.properties) {
-            if (options.extraProperties && options.extraProperties.length > 0)
-            {
-                extraProperties = options.extraProperties.filter(extraProperty => {
-                    return extraProperty.namespaceShort && extraProperty.namespaceShort.length > 0 &&
-                    extraProperty.namespace && extraProperty.namespace.length > 0 &&
-                    extraProperty.element && extraProperty.element.length > 0
-                });
-            }
-
-            if (extraProperties.length > 0)
-            {
-                uniqBy(options.extraProperties, extraProperty => extraProperty.namespaceShort)
-                .forEach(extraProperty => {
-                    if (extraProperty.namespaceShort !== 'd') {
-                        findProps.attributes[`xmlns:${extraProperty.namespaceShort}`] = extraProperty.namespace;
-                    }
-                });
-
-                options.extraProperties.forEach(extraProperty => {
-                    xmlProp.ele(`${extraProperty.namespaceShort}:${extraProperty.element}`);
-                });
-            }
-        }
+        const [findProps, extraProperties] = createPropFindBody(options);
 
         this.request({
             url: path,
@@ -625,13 +605,21 @@ export class Connection
     }
 
     getProperties(path : string, callback : (error ?: Error, properties ?: Properties) => void) : void
+    getProperties(path : string, options : ConnectionReaddirOptions, callback : (error : Error, properties ?: Properties) => void) : void
+    getProperties(path : string, _options : ConnectionReaddirOptions | ((error : Error, properties ?: Properties) => void), _callback ?: (error : Error, properties ?: Properties) => void) : void
     {
+        const options = _callback ? _options as ConnectionReaddirOptions : {} as ConnectionReaddirOptions;
+        const callback = _callback ? _callback : _options as ((error : Error, properties ?: Properties) => void);
+
+        let [findProps, extraProperties] = createPropFindBody(options);
+            
         this.request({
             url: path,
             method: 'PROPFIND',
             headers: {
                 depth: '0'
             },
+            body: (extraProperties.length > 0 ? findProps.toXML() : '')
         }, (e, res, body) => {
             if(e)
                 return callback(e);
@@ -643,23 +631,36 @@ export class Connection
                 const properties = XML.parse(Buffer.isBuffer(body) ? Int8Array.from(body) : body)
                     .find('DAV:multistatus')
                     .find('DAV:response')
-                    .find('DAV:propstat')
-                    .find('DAV:prop')
-                    .elements
-                    .map((el) => {
-                        return {
-                            name: el.name,
-                            attributes: el.attributes,
-                            value: el.elements.length === 0 ? undefined : el.elements.length === 1 && el.elements[0].type === 'text' ? (el.elements[0] as any).text : el.elements
-                        }
+                    .findMany('DAV:propstat')
+                    .map(el => {
+                        return el.find('DAV:prop')
+                        .elements
+                        .map((el) => {
+                            let name = el.name;
+                            for (const extraProperty of extraProperties) {
+                                if (name && name === `${extraProperty.namespace}${extraProperty.element}`) {
+                                    name = `${extraProperty.namespaceShort}:${extraProperty.element}`;
+                                    break;
+                                }
+                            }
+
+                            return {
+                                name: name,
+                                attributes: el.attributes,
+                                value: el.elements.length === 0 ? undefined : el.elements.length === 1 && el.elements[0].type === 'text' ? (el.elements[0] as any).text : el.elements
+                            }
+                        })
                     })
-                
+
                 const result : Properties = {};
-                for(const prop of properties)
-                    result[prop.name] = {
-                        content: prop.value,
-                        attributes: prop.attributes
+                for (const propArr of properties) {
+                    for (const prop of propArr) {
+                        result[prop.name] = {
+                            content: prop.value,
+                            attributes: prop.attributes
+                        }
                     }
+                }
 
                 callback(null, result);
             }
@@ -669,6 +670,47 @@ export class Connection
             }
         })
     }
+}
+
+function createPropFindBody(options : ConnectionReaddirOptions): [XMLElementBuilder, ConnectionReaddirProperty[]] {
+    const findProps = new XMLElementBuilder('d:propfind', {
+        'xmlns:d': 'DAV:'
+    });
+
+    const xmlProp = findProps.ele('d:prop');
+    xmlProp.ele('d:resourcetype');
+    xmlProp.ele('d:creationdate');
+    xmlProp.ele('d:getlastmodified');
+    xmlProp.ele('d:getcontentlength');
+
+    let extraProperties : ConnectionReaddirProperty[] = [];
+
+    if (options) {
+        if (options.extraProperties && options.extraProperties.length > 0)
+        {
+            extraProperties = options.extraProperties.filter(extraProperty => {
+                return extraProperty.namespaceShort && extraProperty.namespaceShort.length > 0 &&
+                extraProperty.namespace && extraProperty.namespace.length > 0 &&
+                extraProperty.element && extraProperty.element.length > 0
+            });
+        }
+
+        if (extraProperties.length > 0)
+        {
+            uniqBy(options.extraProperties, extraProperty => extraProperty.namespaceShort)
+            .forEach(extraProperty => {
+                if (extraProperty.namespaceShort !== 'd') {
+                    findProps.attributes[`xmlns:${extraProperty.namespaceShort}`] = extraProperty.namespace;
+                }
+            });
+
+            options.extraProperties.forEach(extraProperty => {
+                xmlProp.ele(`${extraProperty.namespaceShort}:${extraProperty.element}`);
+            });
+        }
+    }
+
+    return [findProps, extraProperties];
 }
 
 function toNativeType(value: string) {
