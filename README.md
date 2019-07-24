@@ -96,7 +96,7 @@ interface ConnectionReaddirOptions
     // true = get a ConnectionReaddirComplexResult Array as callback result
     // false (default) = get a String Array as callback result
     properties ?: boolean
-    // An array of properties which will be send with the PROPFIND request
+    // An array of properties which will be sent with the PROPFIND request
     extraProperties: ConnectionReaddirProperty[]
 }
 ```

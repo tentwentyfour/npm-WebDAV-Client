@@ -672,10 +672,11 @@ export class Connection
     }
 }
 
-function createPropFindBody(options : ConnectionReaddirOptions): [XMLElementBuilder, ConnectionReaddirProperty[]] {
-    const findProps = new XMLElementBuilder('d:propfind', {
-        'xmlns:d': 'DAV:'
-    });
+function createPropFindBody(options: ConnectionReaddirOptions): [XMLElementBuilder, ConnectionReaddirProperty[]] {
+    const findProps = new XMLElementBuilder(
+        'd:propfind',
+        { 'xmlns:d': 'DAV:' }
+    );
 
     const xmlProp = findProps.ele('d:prop');
     xmlProp.ele('d:resourcetype');
@@ -683,20 +684,19 @@ function createPropFindBody(options : ConnectionReaddirOptions): [XMLElementBuil
     xmlProp.ele('d:getlastmodified');
     xmlProp.ele('d:getcontentlength');
 
-    let extraProperties : ConnectionReaddirProperty[] = [];
+    let extraProperties: ConnectionReaddirProperty[] = [];
 
-    if (options) {
-        if (options.extraProperties && options.extraProperties.length > 0)
-        {
-            extraProperties = options.extraProperties.filter(extraProperty => {
-                return extraProperty.namespaceShort && extraProperty.namespaceShort.length > 0 &&
-                extraProperty.namespace && extraProperty.namespace.length > 0 &&
-                extraProperty.element && extraProperty.element.length > 0
-            });
-        }
+    if (options && options.extraProperties && options.extraProperties.length > 0) {
+        extraProperties = options.extraProperties.filter(extraProperty => {
+            return extraProperty.namespaceShort
+                && extraProperty.namespaceShort.length > 0
+                && extraProperty.namespace
+                && extraProperty.namespace.length > 0
+                && extraProperty.element
+                && extraProperty.element.length > 0;
+        });
 
-        if (extraProperties.length > 0)
-        {
+        if (extraProperties.length > 0) {
             uniqBy(options.extraProperties, extraProperty => extraProperty.namespaceShort)
             .forEach(extraProperty => {
                 if (extraProperty.namespaceShort !== 'd') {
@@ -715,12 +715,13 @@ function createPropFindBody(options : ConnectionReaddirOptions): [XMLElementBuil
 
 function toNativeType(value: string) {
     let numValue = Number(value);
-    if (!isNaN(numValue))
-    {
+
+    if (!isNaN(numValue)) {
         return numValue;
     }
 
     let boolValue = value.toLowerCase();
+
     if (boolValue === 'true') {
         return true;
     } else if (boolValue === 'false') {
