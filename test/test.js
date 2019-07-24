@@ -29,7 +29,8 @@ const subTree = {
     'fileToDelete': webdav.ResourceType.File,
     'file.pipe.in': webdav.ResourceType.File,
     'file.new': webdav.ResourceType.File,
-    'file1.new': webdav.ResourceType.File
+    'file1.new': webdav.ResourceType.File,
+    'fileXYZ': webdav.ResourceType.File,
 };
 
 const server = new webdav.WebDAVServer();
@@ -528,6 +529,31 @@ function testProperties()
                         })
                     })
                     
+                    end();
+                })
+            })
+
+            end();
+        })
+    })
+
+    start('"getProperties" on "/fileXYZ"', (end, expected) => {
+        connection.setProperties('/fileXYZ', {
+            'abc:fileid': {
+                attributes: {
+                    ['xmlns:abc']: 'http://abc.org/ns/'
+                },
+                content: '123456789'
+            }
+        }, (e) => {
+            expected(e);
+            
+            start('"getProperties" on "/fileXYZ" after "setProperties"', (end, expected) => {
+                connection.getProperties('/fileXYZ', (e, props) => {
+                    expected(e)
+                    expected(props, ANY)
+                    expected(props['http://abc.org/ns:fileid'], ANY)
+                    expected(props['http://abc.org/ns:fileid'].content, '123456789');
                     end();
                 })
             })
